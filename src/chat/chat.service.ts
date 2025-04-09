@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatOllama } from '@langchain/community/chat_models/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -40,7 +41,7 @@ export class ChatService {
     private messageRepo: Repository<Message>,
   ) {}
 
-  async chat(userMessage: string): Promise<{
+  async chatGPT(userMessage: string): Promise<{
     response: string;
     usage: TokenUsage;
   }> {
@@ -89,5 +90,35 @@ export class ChatService {
       response: content,
       usage,
     };
+  }
+
+  async chatOllama(userMessage: string): Promise<{ response: string }> {
+    const model = new ChatOllama({
+      baseUrl: 'http://localhost:11434',
+      model: 'tinyllama:latest',
+    });
+
+    const messages = [
+      new SystemMessage('Responde con claridad y brevedad.'),
+      new HumanMessage(userMessage),
+    ];
+
+    const res = (await model.invoke(messages)) as {
+      content: string | unknown[];
+    };
+
+    const content =
+      typeof res.content === 'string'
+        ? res.content
+        : res.content
+            .map((part) => (isTextPart(part) ? part.text : ''))
+            .join('');
+
+    await this.messageRepo.save([
+      { role: 'user', content: userMessage },
+      { role: 'assistant', content },
+    ]);
+
+    return { response: content };
   }
 }

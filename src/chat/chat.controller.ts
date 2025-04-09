@@ -5,8 +5,8 @@ import { ChatService } from './chat.service';
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
-  @Post()
-  async sendMessage(@Body('message') message: string): Promise<{
+  @Post('opengpt')
+  async sendMessageGPT(@Body('message') message: string): Promise<{
     response: string;
     usage: {
       promptTokens: number;
@@ -14,6 +14,13 @@ export class ChatController {
       totalTokens: number;
     };
   }> {
-    return await this.chatService.chat(message);
+    return await this.chatService.chatGPT(message);
+  }
+
+  @Post('ollama')
+  async sendMessageOllama(@Body('message') message: string): Promise<{
+    response: string;
+  }> {
+    return await this.chatService.chatOllama(message);
   }
 }
