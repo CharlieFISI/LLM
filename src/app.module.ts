@@ -5,6 +5,7 @@ import { ChatModule } from './chat/chat.module';
 import { Message } from './chat/entities/message.entity';
 import { FilesModule } from './files/files.module';
 import { AppDataSource } from 'src/data-source';
+import { QuestionAnswerModule } from './question-answer/question-answer.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { AppDataSource } from 'src/data-source';
     TypeOrmModule.forFeature([Message]),
     ChatModule,
     FilesModule,
+    QuestionAnswerModule,
   ],
 })
 export class AppModule {}
