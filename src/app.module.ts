@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChatModule } from './chat/chat.module';
 import { Message } from './chat/entities/message.entity';
+import { FilesModule } from './files/files.module';
 import * as fs from 'fs';
 
 @Module({
@@ -35,6 +36,7 @@ import * as fs from 'fs';
     }),
     TypeOrmModule.forFeature([Message]),
     ChatModule,
+    FilesModule,
   ],
 })
 export class AppModule {}

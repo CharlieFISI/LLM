@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
-import { ChatOllama } from '@langchain/community/chat_models/ollama';
+// import { ChatOllama } from '@langchain/community/chat_models/ollama';
+import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -93,8 +94,12 @@ export class ChatService {
   }
 
   async chatOllama(userMessage: string): Promise<{ response: string }> {
+    // const model = new ChatOllama({
+    //   baseUrl: 'http://localhost:11434',
+    //   model: 'tinyllama:latest',
+    // });
+
     const model = new ChatOllama({
-      baseUrl: 'http://localhost:11434',
       model: 'tinyllama:latest',
     });
 
