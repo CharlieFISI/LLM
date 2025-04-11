@@ -1,20 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
-// import { ChatOllama } from '@langchain/community/chat_models/ollama';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Message } from './entities/message.entity';
 
-// Tipado para uso de tokens
 interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
 }
 
-// Tipado seguro para metadata de respuesta
 interface TokenUsageMetadata {
   tokenUsage?: {
     promptTokens?: number;
@@ -23,7 +20,6 @@ interface TokenUsageMetadata {
   };
 }
 
-// Type guard para validar que un fragmento es de tipo texto
 function isTextPart(part: unknown): part is { type: 'text'; text: string } {
   return (
     typeof part === 'object' &&
@@ -47,11 +43,8 @@ export class ChatService {
     usage: TokenUsage;
   }> {
     const model = new ChatOpenAI({
-      configuration: {
-        apiKey: process.env.OPENROUTER_API_KEY,
-        baseURL: 'https://openrouter.ai/api/v1',
-      },
-      model: 'openai/gpt-3.5-turbo', // o el modelo de OpenRouter que elijas
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'gpt-3.5-turbo',
     });
 
     const messages = [
@@ -59,13 +52,11 @@ export class ChatService {
       new HumanMessage(userMessage),
     ];
 
-    // Tipamos la respuesta del modelo para evitar `any`
     const res = (await model.invoke(messages)) as {
       content: string | unknown[];
       response_metadata?: TokenUsageMetadata;
     };
 
-    // Extraer el contenido
     const content =
       typeof res.content === 'string'
         ? res.content
@@ -73,7 +64,6 @@ export class ChatService {
             .map((part) => (isTextPart(part) ? part.text : ''))
             .join('');
 
-    // Extraer el uso de tokens de forma segura y tipada
     const usage: TokenUsage = {
       promptTokens: res.response_metadata?.tokenUsage?.promptTokens ?? 0,
       completionTokens:
@@ -94,13 +84,8 @@ export class ChatService {
   }
 
   async chatOllama(userMessage: string): Promise<{ response: string }> {
-    // const model = new ChatOllama({
-    //   baseUrl: 'http://localhost:11434',
-    //   model: 'tinyllama:latest',
-    // });
-
     const model = new ChatOllama({
-      model: 'tinyllama:latest',
+      model: 'gemma3:latest',
     });
 
     const messages = [
