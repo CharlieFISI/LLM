@@ -205,29 +205,9 @@ export class FilesService {
       const rawSql = String(
         response.answer?.content ?? 'No se encontró respuesta',
       );
-      console.log('rawSql', rawSql);
-
-      // Prompt para el segundo LLM (formatear resultado)
-      const formatPrompt = ChatPromptTemplate.fromTemplate(`
-        Corrige la siguiente consulta SQL:
-        - Elimina los caracteres ajenos a la consulta y \n.
-        - Encierra los nombres de tablas entre comillas dobles.
-        - Devuelve solo la consulta SQL limpia, sin explicaciones ni comentarios.
-
-        SQL:
-        {input}
-      `);
-
-      // Instanciar el segundo LLM (para formateo)
-      const llmFormatter = new ChatOllama({ model: 'codellama:7b-instruct' });
-
-      // Ejecutar el formateo
-      const formattedResponse = await formatPrompt.pipe(llmFormatter).invoke({
-        input: rawSql,
-      });
 
       // Retornar la respuesta final ya formateada
-      return { answer: formattedResponse.content };
+      return { answer: rawSql };
     } catch (error) {
       if (error instanceof HttpException) {
         console.error('Error al preguntar sobre el CRM:', error.message);
