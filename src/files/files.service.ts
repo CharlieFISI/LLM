@@ -9,12 +9,11 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import { TextLoader } from 'langchain/document_loaders/fs/text';
 import { TypeORMVectorStore } from '@langchain/community/vectorstores/typeorm';
-import { OllamaEmbeddings } from '@langchain/ollama';
+import { OllamaEmbeddings, ChatOllama } from '@langchain/ollama';
 import { AppDataSource } from 'src/data-source';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { ChatOllama } from '@langchain/community/chat_models/ollama';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { createRetrievalChain } from 'langchain/chains/retrieval';
 
@@ -187,7 +186,7 @@ export class FilesService {
 
       // Instanciar el LLM
       const llm = new ChatOllama({ model: 'gemma3:latest' });
-  
+
       // Crear la cadena que conecta el retriever, el prompt y el modelo de lenguaje
       const chain = await createRetrievalChain({
         combineDocsChain: RunnableSequence.from([prompt, llm]),
@@ -199,9 +198,11 @@ export class FilesService {
         'Del archivo anterior, responde lo siguiente utilizando solo código SQL, sin explicaciones, sin comentarios y sin texto adicional: ';
       const fullQuestion = `${fixedInstruction} ${question}`;
       const response = await chain.invoke({ input: fullQuestion });
-  
+
       // Obtener el contenido en texto plano
-      const rawSql = String(response.answer?.content ?? 'No se encontró respuesta');
+      const rawSql = String(
+        response.answer?.content ?? 'No se encontró respuesta',
+      );
       console.log('rawSql', rawSql);
 
       // Prompt para el segundo LLM (formatear resultado)
