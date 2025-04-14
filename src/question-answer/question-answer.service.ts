@@ -102,4 +102,40 @@ export class QuestionAnswerService {
     ]);
     return String(response.answer?.content ?? 'No se encontró respuesta');
   }
+
+  async consultQueryCRMOpenAI35Turbo3Small(question: string) {
+    const llm = new ChatOpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'gpt-3.5-turbo',
+    });
+
+    const schema = `
+Tablas disponibles:
+
+clientes(id, nombre, email, fecha_registro)
+ventas(id, cliente_id, monto, fecha_venta)
+productos(id, nombre, precio, stock)
+`;
+
+    const prompt = ChatPromptTemplate.fromTemplate(`
+Eres un asistente experto en SQL. Tu tarea es generar únicamente la consulta SQL en formato PostgreSQL basada en la siguiente pregunta, usando el esquema de base de datos proporcionado.
+
+🔒 No expliques, no agregues ningún comentario. Solo responde con la query lista para ejecutar.
+
+📚 Esquema de base de datos:
+{schema}
+
+❓ Pregunta:
+{input}
+`);
+
+    const chain = RunnableSequence.from([prompt, llm]);
+
+    const result = await chain.invoke({
+      schema,
+      input: question,
+    });
+
+    return String(result.content ?? 'No se encontró respuesta').trim();
+  }
 }

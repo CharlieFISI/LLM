@@ -9,7 +9,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { FilesService } from './files.service';
-import { AskCrmDto} from './dto/create-file.dto';
+import { AskCrmDto } from './dto/create-file.dto';
 import { ApiOperation } from '@nestjs/swagger';
 
 @Controller('files')
@@ -56,11 +56,29 @@ export class FilesController {
     return await this.fileService.processFileOpenAI3Small(file);
   }
 
+  // @Post('embed-schema')
+  // @UseInterceptors(
+  //   FileInterceptor('file', {
+  //     storage: diskStorage({
+  //       destination: './documents/input',
+  //       filename: (_req, file, cb) => {
+  //         const uniqueSuffix =
+  //           Date.now() + '-' + Math.round(Math.random() * 1e9);
+  //         cb(
+  //           null,
+  //           `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`,
+  //         );
+  //       },
+  //     }),
+  //   }),
+  // )
+  // async embedSchema(@UploadedFile() file: Express.Multer.File) {
+  //   return await this.fileService.embedSchema(file);
+  // }
+
   @Post('ask-crm-db')
   @ApiOperation({ summary: 'Haz una pregunta sobre la base de datos del CRM' })
-  async questionCrmDb(
-    @Body() body: AskCrmDto,
-  ) {
+  async questionCrmDb(@Body() body: AskCrmDto) {
     return this.fileService.questionCrmDb(body.question);
   }
 }

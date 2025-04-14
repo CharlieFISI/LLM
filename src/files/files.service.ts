@@ -1,4 +1,9 @@
-import { HttpException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { join, extname } from 'path';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
@@ -8,10 +13,10 @@ import { OllamaEmbeddings } from '@langchain/ollama';
 import { AppDataSource } from 'src/data-source';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { OpenAIEmbeddings } from '@langchain/openai';
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { ChatOllama } from "@langchain/community/chat_models/ollama";
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { ChatOllama } from '@langchain/community/chat_models/ollama';
 import { RunnableSequence } from '@langchain/core/runnables';
-import { createRetrievalChain } from "langchain/chains/retrieval";
+import { createRetrievalChain } from 'langchain/chains/retrieval';
 
 @Injectable()
 export class FilesService {
@@ -124,118 +129,39 @@ export class FilesService {
     }
   }
 
-  //   async processFile(
-  //     file: Express.Multer.File,
-  //     question: string,
-  //   ): Promise<{
-  //     message: string;
-  //     documents: number;
-  //     outputFile?: string;
-  //     answer: string;
-  //   }> {
-  //     try {
-  //       const originalPath = join(this.inputPath, file.filename);
-  //       const ext = extname(file.originalname).toLowerCase();
+  // async embedSchema(model: string) {
+  //   const schemaPath = join(
+  //     __dirname,
+  //     '..',
+  //     '..',
+  //     'documents/input',
+  //     'schema.embedding.txt',
+  //   );
+  //   const schemaContent = readFileSync(schemaPath, 'utf8');
 
-  //       let loader;
-  //       switch (ext) {
-  //         case '.pdf':
-  //           loader = new PDFLoader(originalPath);
-  //           break;
-  //         case '.txt':
-  //           loader = new TextLoader(originalPath);
-  //           break;
-  //         default:
-  //           throw new Error(`Tipo de archivo no soportado: ${ext}`);
-  //       }
+  //   const splitter = new RecursiveCharacterTextSplitter({
+  //     chunkSize: 512,
+  //     chunkOverlap: 50,
+  //   });
 
-  //       const docs = await loader.load();
+  //   const docs = await splitter.createDocuments([schemaContent]);
 
-  //       const splitter = new RecursiveCharacterTextSplitter({
-  //         chunkSize: 512,
-  //         chunkOverlap: 50,
-  //       });
+  //   const embeddings = new OllamaEmbeddings({ model: 'all-minilm' });
 
-  //       const splitDocs = await splitter.splitDocuments(docs);
+  //   await TypeORMVectorStore.fromDocuments(docs, embeddings, {
+  //     postgresConnectionOptions: AppDataSource,
+  //     tableName: 'schema_embeddings',
+  //   });
 
-  //       const embeddings = new OllamaEmbeddings({ model: 'all-minilm' });
-  //       // const embeddings = new OpenAIEmbeddings({
-  //       //   apiKey: process.env.OPENAI_API_KEY,
-  //       //   model: 'text-embedding-3-small',
-  //       // });
+  //   return 'Embedding del esquema realizado con éxito.';
+  // }
 
-  //       const vectorStore = await TypeORMVectorStore.fromDocuments(
-  //         splitDocs,
-  //         embeddings,
-  //         {
-  //           postgresConnectionOptions: AppDataSource,
-  //           tableName: 'document_openai_turbo_small',
-  //         },
-  //       );
-
-  //       const retriever = vectorStore.asRetriever();
-
-  //       const prompt = ChatPromptTemplate.fromTemplate(`
-  // Eres un asistente útil que responde preguntas basado estrictamente en los documentos proporcionados.
-
-  // Contexto:
-  // {context}
-
-  // Pregunta:
-  // {input}
-  // `);
-
-  //       const llm = new ChatOllama({ model: 'gemma3:latest' });
-  //       // const llm = new ChatOpenAI({
-  //       //   apiKey: process.env.OPENAI_API_KEY,
-  //       //   model: 'gpt-3.5-turbo',
-  //       // });
-
-  //       const chain = await createRetrievalChain({
-  //         combineDocsChain: RunnableSequence.from([prompt, llm]),
-  //         retriever,
-  //       });
-
-  //       const response = await chain.invoke({ input: question });
-
-  //       const respuesta = String(
-  //         response.answer?.content ?? 'No se encontró respuesta',
-  //       );
-
-  //       const textContent = docs.map((doc) => doc.pageContent).join('\n\n');
-  //       const resultFileName = `resultado-${file.filename}.txt`;
-  //       const resultFilePath = join(this.outputPath, resultFileName);
-
-  //       const responseText = `
-  // ---
-
-  // ❓ Pregunta: ${question}
-
-  // 💬 Respuesta: ${response.answer?.content ?? 'No se encontró respuesta'}
-  // `;
-
-  //       writeFileSync(resultFilePath, textContent + responseText);
-
-  //       return {
-  //         message: 'Archivo procesado y almacenado exitosamente',
-  //         documents: docs.length,
-  //         outputFile: resultFileName,
-  //         answer: respuesta,
-  //       };
-  //     } catch (error) {
-  //       console.error('❌ Error al procesar archivo:', error);
-  //       throw new Error('Hubo un problema al procesar el archivo');
-  //     }
-  //   }
-
-  async questionCrmDb(
-    question: string,
-  ): Promise<any> {
+  async questionCrmDb(question: string): Promise<any> {
     try {
       // Validar que la tabla de embeddings tenga data (opcional)
       // const count = await AppDataSource.getRepository('document_ollama_allminilm').count();
       // if (count === 0) throw new NotFoundException('No hay documentos procesados en la base.');
-  
+
       // Cargar el vector store desde la base de datos
       const vectorStore = await TypeORMVectorStore.fromExistingIndex(
         new OllamaEmbeddings({ model: 'all-minilm' }),
@@ -244,10 +170,10 @@ export class FilesService {
           tableName: 'document_ollama_allminilm',
         },
       );
-  
+
       // Configurar el retriever para buscar en los documentos
       const retriever = vectorStore.asRetriever();
-  
+
       // Crear el prompt con la estructura de la pregunta
       const prompt = ChatPromptTemplate.fromTemplate(`
         Eres un asistente útil que responde preguntas basado estrictamente en los documentos proporcionados.
@@ -258,26 +184,27 @@ export class FilesService {
         Pregunta:
         {input}
       `);
-  
+
       // Instanciar el LLM
       const llm = new ChatOllama({ model: 'tinyllama:latest' });
-  
+
       // Crear la cadena que conecta el retriever, el prompt y el modelo de lenguaje
       const chain = await createRetrievalChain({
         combineDocsChain: RunnableSequence.from([prompt, llm]),
         retriever,
       });
-  
+
       // Instrucción fija para la pregunta
-      const fixedInstruction = 'Del archivo anterior, responde lo siguiente utilizando solo código SQL, sin explicaciones, sin comentarios y sin texto adicional: ';
+      const fixedInstruction =
+        'Del archivo anterior, responde lo siguiente utilizando solo código SQL, sin explicaciones, sin comentarios y sin texto adicional: ';
       const fullQuestion = `${fixedInstruction} ${question}`;
       const response = await chain.invoke({ input: fullQuestion });
-  
+
       // Procesar y devolver la respuesta
       const respuesta = String(
         response.answer?.content ?? 'No se encontró respuesta',
       );
-  
+
       return { answer: respuesta };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -291,5 +218,4 @@ export class FilesService {
       }
     }
   }
-  
 }
