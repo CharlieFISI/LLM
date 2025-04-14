@@ -56,25 +56,28 @@ export class FilesController {
     return await this.fileService.processFileOpenAI3Small(file);
   }
 
-  // @Post('embed-schema')
-  // @UseInterceptors(
-  //   FileInterceptor('file', {
-  //     storage: diskStorage({
-  //       destination: './documents/input',
-  //       filename: (_req, file, cb) => {
-  //         const uniqueSuffix =
-  //           Date.now() + '-' + Math.round(Math.random() * 1e9);
-  //         cb(
-  //           null,
-  //           `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`,
-  //         );
-  //       },
-  //     }),
-  //   }),
-  // )
-  // async embedSchema(@UploadedFile() file: Express.Multer.File) {
-  //   return await this.fileService.embedSchema(file);
-  // }
+  @Post('embed-schema')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './documents/input',
+        filename: (_req, file, cb) => {
+          const uniqueSuffix =
+            Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(
+            null,
+            `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`,
+          );
+        },
+      }),
+    }),
+  )
+  async embedSchema(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('model') model: string,
+  ) {
+    return await this.fileService.embedSchema(file, model);
+  }
 
   @Post('ask-crm-db')
   @ApiOperation({ summary: 'Haz una pregunta sobre la base de datos del CRM' })

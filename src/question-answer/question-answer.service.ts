@@ -104,38 +104,40 @@ export class QuestionAnswerService {
   }
 
   async consultQueryCRMOpenAI35Turbo3Small(question: string) {
+    const embeddings = new OpenAIEmbeddings({
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'text-embedding-3-small',
+    });
+
+    const vectorStore = await TypeORMVectorStore.fromExistingIndex(embeddings, {
+      postgresConnectionOptions: AppDataSource,
+      tableName: 'schema_embeddings',
+    });
+
+    const retriever = vectorStore.asRetriever();
+
+    const prompt = ChatPromptTemplate.fromTemplate(`
+Eres un asistente experto en SQL que genera únicamente consultas PostgreSQL sin explicaciones.
+
+Basado en el siguiente contexto de esquema de base de datos:
+{context}
+
+Genera una query PostgreSQL para:
+{input}
+`);
+
     const llm = new ChatOpenAI({
       apiKey: process.env.OPENAI_API_KEY,
       model: 'gpt-3.5-turbo',
     });
 
-    const schema = `
-Tablas disponibles:
-
-clientes(id, nombre, email, fecha_registro)
-ventas(id, cliente_id, monto, fecha_venta)
-productos(id, nombre, precio, stock)
-`;
-
-    const prompt = ChatPromptTemplate.fromTemplate(`
-Eres un asistente experto en SQL. Tu tarea es generar únicamente la consulta SQL en formato PostgreSQL basada en la siguiente pregunta, usando el esquema de base de datos proporcionado.
-
-🔒 No expliques, no agregues ningún comentario. Solo responde con la query lista para ejecutar.
-
-📚 Esquema de base de datos:
-{schema}
-
-❓ Pregunta:
-{input}
-`);
-
-    const chain = RunnableSequence.from([prompt, llm]);
-
-    const result = await chain.invoke({
-      schema,
-      input: question,
+    const chain = await createRetrievalChain({
+      combineDocsChain: RunnableSequence.from([prompt, llm]),
+      retriever,
     });
 
-    return String(result.content ?? 'No se encontró respuesta').trim();
+    const result = await chain.invoke({ input: question });
+
+    return String(result.answer?.content ?? 'No se encontró respuesta').trim();
   }
 }

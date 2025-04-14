@@ -128,32 +128,34 @@ export class FilesService {
     }
   }
 
-  // async embedSchema(model: string) {
-  //   const schemaPath = join(
-  //     __dirname,
-  //     '..',
-  //     '..',
-  //     'documents/input',
-  //     'schema.embedding.txt',
-  //   );
-  //   const schemaContent = readFileSync(schemaPath, 'utf8');
+  async embedSchema(file: Express.Multer.File, model: string) {
+    const originalPath = join(this.inputPath, file.filename);
+    const loader = new TextLoader(originalPath);
+    const docs = await loader.load();
 
-  //   const splitter = new RecursiveCharacterTextSplitter({
-  //     chunkSize: 512,
-  //     chunkOverlap: 50,
-  //   });
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize: 512,
+      chunkOverlap: 50,
+    });
 
-  //   const docs = await splitter.createDocuments([schemaContent]);
+    const splitDocs = await splitter.splitDocuments(docs);
+    const isOllama =
+      !model.startsWith('text-embedding') && !model.startsWith('openai');
 
-  //   const embeddings = new OllamaEmbeddings({ model: 'all-minilm' });
+    const embeddings = isOllama
+      ? new OllamaEmbeddings({ model })
+      : new OpenAIEmbeddings({
+          apiKey: process.env.OPENAI_API_KEY,
+          model,
+        });
 
-  //   await TypeORMVectorStore.fromDocuments(docs, embeddings, {
-  //     postgresConnectionOptions: AppDataSource,
-  //     tableName: 'schema_embeddings',
-  //   });
+    await TypeORMVectorStore.fromDocuments(splitDocs, embeddings, {
+      postgresConnectionOptions: AppDataSource,
+      tableName: 'schema_embeddings',
+    });
 
-  //   return 'Embedding del esquema realizado con éxito.';
-  // }
+    return 'Embedding del esquema realizado con éxito.';
+  }
 
   async questionCrmDb(question: string): Promise<any> {
     try {

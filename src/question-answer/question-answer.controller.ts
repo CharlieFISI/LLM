@@ -14,4 +14,11 @@ export class QuestionAnswerController {
   async questionOpenAI35Turbo3Small(@Body() question: string) {
     return this.questionAnswerService.questionOpenAI35Turbo3Small(question);
   }
+
+  @Post('consult-query-crm-openai-35-turbo3-small')
+  async consultQueryCRMOpenAI35Turbo3Small(@Body() question: string) {
+    return this.questionAnswerService.consultQueryCRMOpenAI35Turbo3Small(
+      question,
+    );
+  }
 }
