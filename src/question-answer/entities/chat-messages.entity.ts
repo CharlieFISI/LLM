@@ -1,4 +1,3 @@
-import { IsOptional } from 'class-validator';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -17,12 +16,10 @@ export class ChatMessages {
   @Column()
   content: string;
 
-  @Column()
-  @IsOptional()
+  @Column({ nullable: true })
   chatModel: string;
 
-  @Column()
-  @IsOptional()
+  @Column({ nullable: true })
   embeddingModel: string;
 
   @CreateDateColumn()
