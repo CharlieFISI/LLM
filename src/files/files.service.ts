@@ -186,8 +186,8 @@ export class FilesService {
       `);
 
       // Instanciar el LLM
-      const llm = new ChatOllama({ model: 'tinyllama:latest' });
-
+      const llm = new ChatOllama({ model: 'gemma3:latest' });
+  
       // Crear la cadena que conecta el retriever, el prompt y el modelo de lenguaje
       const chain = await createRetrievalChain({
         combineDocsChain: RunnableSequence.from([prompt, llm]),
@@ -199,13 +199,32 @@ export class FilesService {
         'Del archivo anterior, responde lo siguiente utilizando solo código SQL, sin explicaciones, sin comentarios y sin texto adicional: ';
       const fullQuestion = `${fixedInstruction} ${question}`;
       const response = await chain.invoke({ input: fullQuestion });
+  
+      // Obtener el contenido en texto plano
+      const rawSql = String(response.answer?.content ?? 'No se encontró respuesta');
+      console.log('rawSql', rawSql);
 
-      // Procesar y devolver la respuesta
-      const respuesta = String(
-        response.answer?.content ?? 'No se encontró respuesta',
-      );
+      // Prompt para el segundo LLM (formatear resultado)
+      const formatPrompt = ChatPromptTemplate.fromTemplate(`
+        Corrige la siguiente consulta SQL:
+        - Elimina los caracteres ajenos a la consulta y \n.
+        - Encierra los nombres de tablas entre comillas dobles.
+        - Devuelve solo la consulta SQL limpia, sin explicaciones ni comentarios.
 
-      return { answer: respuesta };
+        SQL:
+        {input}
+      `);
+
+      // Instanciar el segundo LLM (para formateo)
+      const llmFormatter = new ChatOllama({ model: 'codellama:7b-instruct' });
+
+      // Ejecutar el formateo
+      const formattedResponse = await formatPrompt.pipe(llmFormatter).invoke({
+        input: rawSql,
+      });
+
+      // Retornar la respuesta final ya formateada
+      return { answer: formattedResponse.content };
     } catch (error) {
       if (error instanceof HttpException) {
         console.error('Error al preguntar sobre el CRM:', error.message);
