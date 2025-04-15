@@ -6,6 +6,7 @@ import { Message } from './chat/entities/message.entity';
 import { FilesModule } from './files/files.module';
 import { AppDataSource } from 'src/data-source';
 import { QuestionAnswerModule } from './question-answer/question-answer.module';
+import { LangGraphModule } from './lang-graph/lang-graph.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { QuestionAnswerModule } from './question-answer/question-answer.module';
     ChatModule,
     FilesModule,
     QuestionAnswerModule,
+    LangGraphModule,
   ],
 })
 export class AppModule {}
