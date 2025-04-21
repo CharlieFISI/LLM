@@ -103,65 +103,65 @@ export class QuestionAnswerService {
     return String(response.answer?.content ?? 'No se encontró respuesta');
   }
 
-  //   async consultQueryCRMOpenAI35Turbo3Small(question: string) {
-  //     const embeddings = new OpenAIEmbeddings({
-  //       apiKey: process.env.OPENAI_API_KEY,
-  //       model: 'text-embedding-3-small',
-  //     });
-
-  //     const vectorStore = await TypeORMVectorStore.fromExistingIndex(embeddings, {
-  //       postgresConnectionOptions: AppDataSource,
-  //       tableName: 'schema_embeddings',
-  //     });
-
-  //     const retriever = vectorStore.asRetriever();
-
-  //     const prompt = ChatPromptTemplate.fromTemplate(`
-  // Eres un asistente experto en SQL que genera únicamente consultas PostgreSQL válidas.
-
-  // Tu tarea es generar **solo** consultas SQL basadas **exclusivamente** en el contexto del esquema proporcionado.
-
-  // No inventes tablas ni campos. No utilices nombres como 'table_name' o 'column_name'.
-
-  // Contexto del esquema de la base de datos:
-  // {context}
-
-  // Consulta solicitada:
-  // {input}
-  // `);
-
-  //     const llm = new ChatOpenAI({
-  //       apiKey: process.env.OPENAI_API_KEY,
-  //       model: 'gpt-3.5-turbo',
-  //     });
-
-  //     const chain = await createRetrievalChain({
-  //       combineDocsChain: RunnableSequence.from([prompt, llm]),
-  //       retriever,
-  //     });
-
-  //     const result = await chain.invoke({
-  //       input: question,
-  //     });
-
-  //     const generatedQuery = String(result.answer?.content ?? '').trim();
-
-  //     if (!generatedQuery.toLowerCase().startsWith('select')) {
-  //       throw new Error('El modelo no generó una consulta SQL válida.');
-  //     }
-
-  //     const dataSource = new DataSource(CRMDataSource);
-  //     if (!dataSource.isInitialized) await dataSource.initialize();
-
-  //     const queryResult = await dataSource.query(generatedQuery);
-
-  //     return {
-  //       query: generatedQuery,
-  //       result: queryResult,
-  //     };
-  //   }
-
   async consultQueryCRMOpenAI35Turbo3Small(question: string) {
+    const embeddings = new OpenAIEmbeddings({
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'text-embedding-3-small',
+    });
+
+    const vectorStore = await TypeORMVectorStore.fromExistingIndex(embeddings, {
+      postgresConnectionOptions: AppDataSource,
+      tableName: 'schema_embeddings',
+    });
+
+    const retriever = vectorStore.asRetriever();
+
+    const prompt = ChatPromptTemplate.fromTemplate(`
+  Eres un asistente experto en SQL que genera únicamente consultas PostgreSQL válidas.
+
+  Tu tarea es generar **solo** consultas SQL basadas **exclusivamente** en el contexto del esquema proporcionado.
+
+  No inventes tablas ni campos. No utilices nombres como 'table_name' o 'column_name'.
+
+  Contexto del esquema de la base de datos:
+  {context}
+
+  Consulta solicitada:
+  {input}
+  `);
+
+    const llm = new ChatOpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'gpt-3.5-turbo',
+    });
+
+    const chain = await createRetrievalChain({
+      combineDocsChain: RunnableSequence.from([prompt, llm]),
+      retriever,
+    });
+
+    const result = await chain.invoke({
+      input: question,
+    });
+
+    const generatedQuery = String(result.answer?.content ?? '').trim();
+
+    if (!generatedQuery.toLowerCase().startsWith('select')) {
+      throw new Error('El modelo no generó una consulta SQL válida.');
+    }
+
+    const dataSource = new DataSource(CRMDataSource);
+    if (!dataSource.isInitialized) await dataSource.initialize();
+
+    const queryResult = await dataSource.query(generatedQuery);
+
+    return {
+      query: generatedQuery,
+      result: queryResult,
+    };
+  }
+
+  async consultQueryCRMOpenAI4oMini3Small(question: string) {
     let generatedQuery = '';
     try {
       const embeddings = new OpenAIEmbeddings({
@@ -182,24 +182,27 @@ export class QuestionAnswerService {
       const context = docs.map((doc) => doc.pageContent).join('\n\n');
 
       const prompt = ChatPromptTemplate.fromTemplate(`
-Eres un asistente experto en SQL que genera únicamente consultas PostgreSQL válidas.
+Eres un asistente experto en SQL que genera exclusivamente consultas PostgreSQL válidas para ser ejecutadas directamente.
 
-Tu tarea es generar **solo** consultas SQL basadas **exclusivamente** en el contexto del esquema proporcionado.
+⚠️ REGLAS ESTRICTAS:
+- Usa solo **tablas y campos disponibles** en el contexto. NO inventes campos como "estado", "new_stage_id", etc.
+- Si necesitas filtrar por nombre de etapa o estado, cruza con la tabla stage usando su campo "name".
+- Si el nombre de una tabla es una palabra reservada (como "user"), colócala entre comillas dobles: "user".
+- NO incluyas explicaciones ni comentarios.
+- La salida debe ser **solo** una consulta SQL, comenzando con "SELECT", "INSERT", etc.
+- NO utilices nombres como 'table_name', 'column_name' ni campos que no existan.
+- NO consultes campos como "body" directamente en las tablas lead, pre_contact o oportunity. Esos campos están en las tablas de tipificación: typification_lead, typification_oportunity, typification_pre_contact.
 
-No inventes tablas ni campos. No utilices nombres como 'table_name' o 'column_name'.
-
-⚠️ Si el nombre de una tabla coincide con una palabra reservada de SQL (como 'user'), debe ir **entre comillas dobles** ("user").
-
-Contexto del esquema de la base de datos:
+🧩 CONTEXTO:
 {context}
 
-Consulta solicitada:
+❓ CONSULTA:
 {input}
 `);
 
       const llm = new ChatOpenAI({
         apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini',
       });
 
       const chain = await createRetrievalChain({
@@ -212,9 +215,12 @@ Consulta solicitada:
         context,
       });
 
-      generatedQuery = String(result.answer?.content ?? '').trim();
+      generatedQuery = String(result.answer?.content ?? '')
+        .replace(/```sql\n?/gi, '')
+        .replace(/```/g, '')
+        .trim();
 
-      if (!generatedQuery.toLowerCase().startsWith('select')) {
+      if (!/^select/i.test(generatedQuery.trim())) {
         return {
           query: generatedQuery,
           result: null,

@@ -27,4 +27,11 @@ export class QuestionAnswerController {
       body.question,
     );
   }
+
+  @Post('consult-query-crm-openai-4o-mini3-small')
+  async consultQueryCRMOpenAI4oMini3Small(@Body() body: { question: string }) {
+    return this.questionAnswerService.consultQueryCRMOpenAI4oMini3Small(
+      body.question,
+    );
+  }
 }
