@@ -1,28 +1,23 @@
-import {
-  HttpException,
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { join, extname } from 'path';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import { TextLoader } from 'langchain/document_loaders/fs/text';
 import { TypeORMVectorStore } from '@langchain/community/vectorstores/typeorm';
-import { OllamaEmbeddings, ChatOllama } from '@langchain/ollama';
+import { OllamaEmbeddings } from '@langchain/ollama';
 import { AppDataSource } from 'src/data-source';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
-import { OpenAIEmbeddings } from '@langchain/openai';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { RunnableSequence } from '@langchain/core/runnables';
-import { createRetrievalChain } from 'langchain/chains/retrieval';
+import { OpenAIEmbeddings, ChatOpenAI } from '@langchain/openai';
 
 @Injectable()
 export class FilesService {
   private inputPath = join(__dirname, '..', '..', 'documents/input');
   private outputPath = join(__dirname, '..', '..', 'documents/output');
 
-  constructor() {
+  constructor(
+    //@InjectRepository(LLMmessage)
+    //private readonly llmmessageRepository: Repository<LLMmessage>,
+  ) {
     if (!existsSync(this.inputPath))
       mkdirSync(this.inputPath, { recursive: true });
     if (!existsSync(this.outputPath))
@@ -59,7 +54,7 @@ export class FilesService {
 
       const splitDocs = await splitter.splitDocuments(docs);
 
-      const embeddings = new OllamaEmbeddings({ model: 'all-minilm' });
+      const embeddings = new OllamaEmbeddings({ model: 'nomic-embed-text:latest' });
 
       await TypeORMVectorStore.fromDocuments(splitDocs, embeddings, {
         postgresConnectionOptions: AppDataSource,
@@ -155,69 +150,5 @@ export class FilesService {
     });
 
     return 'Embedding del esquema realizado con éxito.';
-  }
-
-  async questionCrmDb(question: string): Promise<any> {
-    try {
-      // Validar que la tabla de embeddings tenga data (opcional)
-      // const count = await AppDataSource.getRepository('document_ollama_allminilm').count();
-      // if (count === 0) throw new NotFoundException('No hay documentos procesados en la base.');
-
-      // Cargar el vector store desde la base de datos
-      const vectorStore = await TypeORMVectorStore.fromExistingIndex(
-        new OllamaEmbeddings({ model: 'all-minilm' }),
-        {
-          postgresConnectionOptions: AppDataSource,
-          tableName: 'document_ollama_allminilm',
-        },
-      );
-
-      // Configurar el retriever para buscar en los documentos
-      const retriever = vectorStore.asRetriever();
-
-      // Crear el prompt con la estructura de la pregunta
-      const prompt = ChatPromptTemplate.fromTemplate(`
-        Eres un asistente útil que responde preguntas basado estrictamente en los documentos proporcionados.
-  
-        Contexto:
-        {context}
-  
-        Pregunta:
-        {input}
-      `);
-
-      // Instanciar el LLM
-      const llm = new ChatOllama({ model: 'gemma3:latest' });
-
-      // Crear la cadena que conecta el retriever, el prompt y el modelo de lenguaje
-      const chain = await createRetrievalChain({
-        combineDocsChain: RunnableSequence.from([prompt, llm]),
-        retriever,
-      });
-
-      // Instrucción fija para la pregunta
-      const fixedInstruction =
-        'Del archivo anterior, responde lo siguiente utilizando solo código SQL, sin explicaciones, sin comentarios y sin texto adicional: ';
-      const fullQuestion = `${fixedInstruction} ${question}`;
-      const response = await chain.invoke({ input: fullQuestion });
-
-      // Obtener el contenido en texto plano
-      const rawSql = String(
-        response.answer?.content ?? 'No se encontró respuesta',
-      );
-
-      // Retornar la respuesta final ya formateada
-      return { answer: rawSql };
-    } catch (error) {
-      if (error instanceof HttpException) {
-        console.error('Error al preguntar sobre el CRM:', error.message);
-        throw error;
-      } else {
-        console.error('Error al preguntar sobre el CRM:', error);
-        throw new InternalServerErrorException(
-          `Error al preguntar sobre el CRM: ${error.message}`,
-        );
-      }
-    }
   }
 }
