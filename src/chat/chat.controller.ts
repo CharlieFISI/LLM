@@ -1,6 +1,7 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, Param, Get } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AskCrmDto } from 'src/files/dto/create-file.dto';
 
 @Controller('chat')
 @ApiTags('chat')
@@ -44,5 +45,17 @@ export class ChatController {
     response: string;
   }> {
     return await this.chatService.chatOllama(message);
+  }
+
+  @Post('ask-crm-db')
+  @ApiOperation({ summary: 'Haz una pregunta sobre la base de datos del CRM' })
+  async questionCrmDb(@Body() body: AskCrmDto) {
+    return this.chatService.questionCrmDb(body);
+  }
+
+  @Get('list-crm-chats/:user_id/:message_number')
+  @ApiOperation({ summary: 'Lista los chats del CRM por usuario' })
+  async listCrmChatByUser(@Param('user_id') user_id: string, @Param('message_number') message_number: string) {
+    return this.chatService.listCrmChatByUser(+user_id, +message_number);
   }
 }

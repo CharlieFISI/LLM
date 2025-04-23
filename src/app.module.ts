@@ -6,19 +6,22 @@ import { Message } from './chat/entities/message.entity';
 import { FilesModule } from './files/files.module';
 import { AppDataSource } from 'src/data-source';
 import { QuestionAnswerModule } from './question-answer/question-answer.module';
+import { LangGraphModule } from './lang-graph/lang-graph.module';
+import { CrmChat } from './chat/entities/crm_chat.entity';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
     TypeOrmModule.forRoot({
       ...AppDataSource,
-      entities: [Message],
+      entities: [Message, CrmChat],
       synchronize: true, // OJO: desactívalo en producción
     }),
     TypeOrmModule.forFeature([Message]),
     ChatModule,
     FilesModule,
     QuestionAnswerModule,
+    LangGraphModule,
   ],
 })
 export class AppModule {}
