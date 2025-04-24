@@ -124,6 +124,34 @@ export class ChatService {
     try {
       const { question, llm_model, user_id } = data;
 
+      // Paso 1: Clasificar intención del mensaje
+      const classifyPrompt = ChatPromptTemplate.fromTemplate(`
+        Clasifica el siguiente mensaje como "sql" si requiere una consulta a base de datos o como "otro" si es un saludo, agradecimiento, charla general, etc. Responde solo con la palabra "sql" o "otro", sin explicación.
+
+        Mensaje: {input}
+      `);
+
+      const llmClassifier = new ChatOllama({ model: 'qwen2.5-coder:7b' });
+      const intentRaw = await llmClassifier.invoke(await classifyPrompt.format({ input: question }));
+      const intent = intentRaw.content.toString().trim().toLowerCase();
+      console.log('intent', intent);
+
+      if (intent !== 'sql') {
+        // Registrar igual el mensaje como entrada casual
+        const crm_chat = this.crmChatRepository.create({
+          user_id,
+          question,
+          interpretation: '¡Hola! 👋 Soy tu asistente de consultas para el CRM. \nPuedes hacerme preguntas como: \n- ¿Cuántas oportunidades hay?\n- Muestra los últimos 10 precontactos.\n¡Adelante, dime qué quieres saber! 😊',
+        });
+        await this.crmChatRepository.save(crm_chat);
+
+        return {
+          answer: question,
+          result: null,
+          interpretation: crm_chat.interpretation,
+        };
+      }
+
       // Cargar el vector store desde la base de datos
       const vectorStore = await TypeORMVectorStore.fromExistingIndex(
         new OllamaEmbeddings({ model: 'nomic-embed-text' }),
@@ -145,29 +173,38 @@ export class ChatService {
 
       // Crear el prompt con la estructura de la pregunta
       const prompt = ChatPromptTemplate.fromTemplate(`
-          Eres un experto en SQL. Dada la pregunta, debes crear una consulta SQL sintácticamente correcta, utilizando solo las columnas y tablas presentes en el contexto del esquema proporcionado. 
-          Presta especial atención para **no** incluir columnas que no existan en el esquema y recuerda que no existe la tabla "opportunity" sino "oportunity".
-          Debes utilizar **exclusivamente sintaxis compatible con PostgreSQL**, evitando funciones y operadores propios de otros motores como MySQL o SQL Server.
-          Si la pregunta sugiere crear, actualizar o eliminar algún registro o tabla, responde con el mensaje 'No se pueden alterar datos'.
-          Si el nombre de una tabla coincide con una palabra reservada de SQL (como 'user'), debe ir **entre comillas dobles** ("user").
-          Si se pregunta por países, la consulta debe hacerse con el nombre del país en español, ejemplo: México.
-          Si se pregunta sobre algún nombre, por defecto búscalo sin distinguir mayúsculas o minúsculas a menos que se especifique.
-          Si se pregunta sobre productos ten en cuenta su tabla "product".
-          Si se pregunta sobre cursos, considera que todos los productos corresponden a cursos y realiza la consulta directamente en la tabla "product" sin ningún filtro adicional salvo que se especifique explícitamente en la pregunta. Nunca utilices cláusulas WHERE relacionadas con cursos salvo que se indique claramente en la pregunta.
-          Si se pregunta sobre dónde proviene un precontacto se refiere al campo "note" de la tabla "pre_contact" y busca sin distinguir mayúsculas.
-          Las oportunidades nuevas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Nuevo'.
-          Las oportunidades perdidas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Perdido'.
-          Un usuario no es un lead ni un precontacto.
-          La tabla correcta es "oportunity" no "opportunity".
-          La tabla correcta es "user" no "users".
-          Debes responder utilizando **solo** código SQL, sin envolverla en algún bloque de código, sin saltos de línea, sin caracteres especiales, sin explicaciones, sin comentarios, y sin texto adicional.
-    
-          Contexto:
-          {context}
-    
-          Pregunta:
-          {input}
-        `);
+        Eres un experto en SQL. Dada la pregunta, debes crear una consulta SQL sintácticamente correcta, utilizando solo las columnas y tablas presentes en el contexto del esquema proporcionado. 
+        Presta especial atención para **no** incluir columnas que no existan en el esquema y recuerda que no existe la tabla "opportunity" sino "oportunity".
+        Debes utilizar **exclusivamente sintaxis compatible con PostgreSQL**, evitando funciones y operadores propios de otros motores como MySQL o SQL Server.
+        Si el nombre de una tabla coincide con una palabra reservada de SQL (como 'user'), debe ir **entre comillas dobles** ("user").
+        Si se pregunta por países, la consulta debe hacerse con el nombre del país en español, ejemplo: México.
+        Si se pregunta sobre algún nombre, por defecto búscalo sin distinguir mayúsculas o minúsculas a menos que se especifique.
+        Si se pregunta sobre productos ten en cuenta su tabla "product".
+        Si se pregunta sobre cursos, considera que todos los productos corresponden a cursos y realiza la consulta directamente en la tabla "product" sin ningún filtro adicional salvo que se especifique explícitamente en la pregunta. Nunca utilices cláusulas WHERE relacionadas con cursos salvo que se indique claramente en la pregunta.
+        Si se pregunta sobre dónde proviene un precontacto se refiere al campo "note" de la tabla "pre_contact" y busca sin distinguir mayúsculas.
+        Si se pregunta por los productos de una oportunidad consulta la tabla 'oportunity_has_product'.
+        Si se pregunta por los asesores significa buscar usuario con el rol de Asesor.
+        Se se pregunta por el nombre de un usuario, lead o precontacto busca el campo 'fullname' de sus tablas correspondientes.
+        Las consultas FROM user cámbialas a FROM "user".
+        La tabla "user" no representa leads. Los leads están en la tabla "lead", y deben consultarse exclusivamente desde esa tabla. Nunca asumas que "user" contiene leads.
+        Las oportunidades nuevas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Nuevo'.
+        Las oportunidades perdidas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Perdido'.
+        Las oportunidades ganadas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Ganado'.
+        Las oportunidades en seguimiento significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Seguimiento'.
+        Las oportunidades por pagar significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Pagará'.
+        Un usuario no es un lead ni un precontacto.
+        La tabla "opportunity" no existe. Cualquier consulta debe hacerse usando exclusivamente la tabla "oportunity" (con una sola "p"). Bajo ninguna circunstancia debe escribirse "opportunity".
+        La tabla "opportunity_has_product" no existe. Cualquier consulta debe hacerse usando exclusivamente la tabla "oportunity_has_product" (con una sola "p"). Bajo ninguna circunstancia debe escribirse "opportunity_has_product".
+        La tabla correcta es "user" no "users".
+        Si quieres consultar los roles de un usuario busca en la tabla 'user_has_role'.
+        Debes responder utilizando **solo** código SQL, sin envolverla en algún bloque de código, sin saltos de línea, sin caracteres especiales, sin explicaciones, sin comentarios, y sin texto adicional.
+  
+        Contexto:
+        {context}
+  
+        Pregunta:
+        {input}
+      `);
 
       // Instanciar el LLM
       const llm = new ChatOllama({ model: 'qwen2.5-coder:7b' });
@@ -235,18 +272,23 @@ export class ChatService {
           Eres un experto en CRM y bases de datos que responde en español. Un usuario ha hecho la siguiente pregunta:
         
           {question}
+
+          Se ejecutó la siguiente consulta SQL:
+
+          {sql}
         
           Y se obtuvo el siguiente resultado:
         
           {result}
         
-          Proporciona una respuesta breve y clara para el usuario de negocio.
-          Si no se encontraron registros, responde: "No se encontraron registros que coincidan con la búsqueda."
+          Responde de manera clara, concisa y con un formato amigable, enumerando los elementos de forma ordenada si es que el resultado es un array de varios objetos.
+          En tu respuesta no incluyas la consulta SQL ni des datos sobre los nombres de la tablas.
         `);
 
       // Formateamos el prompt con la pregunta y resultado
       const interpretationPromptValue = await resultPrompt.format({
         question,
+        sql: rawSql,
         result: JSON.stringify(queryResult),
       });
 
@@ -278,7 +320,11 @@ export class ChatService {
         take: +message_number,
       });
 
-      return chats;
+      const total_messages = await this.crmChatRepository.count({
+        where: { user_id: +user_id },
+      });
+
+      return { chats: chats.reverse(), total_messages: total_messages };
     } catch (error) {
       if (error instanceof HttpException) {
         console.error('Error al listar el chat del CRM:', error.message);
