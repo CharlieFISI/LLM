@@ -126,22 +126,43 @@ export class ChatService {
 
       // Paso 1: Clasificar intención del mensaje
       const classifyPrompt = ChatPromptTemplate.fromTemplate(`
-        Clasifica el siguiente mensaje como "sql" si requiere una consulta a base de datos o como "otro" si es un saludo, agradecimiento, charla general, etc. Responde solo con la palabra "sql" o "otro", sin explicación.
+        Clasifica el siguiente mensaje como:
+        - "sql" si requiere una consulta a base de datos.
+        - "otro" si es un saludo, agradecimiento o conversación general.
+        - "bye" si es una despedida, incluso si es informal (ej: "nos vemos", "hasta luego", "cuídate").
+
+        Responde solo con una de las palabras: "sql", "otro" o "bye". No expliques tu respuesta.
+        Si el mensaje es sobre **oportunidades** clasifícalo como "sql".
 
         Mensaje: {input}
       `);
 
-      const llmClassifier = new ChatOllama({ model: 'qwen2.5-coder:7b' });
+      const llmClassifier = new ChatOllama({ model: 'llama3.1:8b' });
       const intentRaw = await llmClassifier.invoke(await classifyPrompt.format({ input: question }));
       const intent = intentRaw.content.toString().trim().toLowerCase();
       console.log('intent', intent);
 
-      if (intent !== 'sql') {
+      if (intent === 'otro') {
         // Registrar igual el mensaje como entrada casual
         const crm_chat = this.crmChatRepository.create({
           user_id,
           question,
           interpretation: '¡Hola! 👋 Soy tu asistente de consultas para el CRM. \nPuedes hacerme preguntas como: \n- ¿Cuántas oportunidades hay?\n- Muestra los últimos 10 precontactos.\n¡Adelante, dime qué quieres saber! 😊',
+        });
+        await this.crmChatRepository.save(crm_chat);
+
+        return {
+          answer: question,
+          result: null,
+          interpretation: crm_chat.interpretation,
+        };
+      }
+      if (intent === 'bye') {
+        // Registrar igual el mensaje como entrada casual
+        const crm_chat = this.crmChatRepository.create({
+          user_id,
+          question,
+          interpretation: '¡Hasta luego! 😊 Si necesitas algo más sobre el CRM, estaré aquí para ayudarte. ¡Que tengas un buen día!',
         });
         await this.crmChatRepository.save(crm_chat);
 

@@ -4,12 +4,15 @@ import {
   Post,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { FilesService } from './files.service';
+import { ApiKeyGuard } from 'src/common/api-key.guard';
 
+@UseGuards(ApiKeyGuard)
 @Controller('files')
 export class FilesController {
   constructor(private readonly fileService: FilesService) {}

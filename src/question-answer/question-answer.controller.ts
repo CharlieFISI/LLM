@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { QuestionAnswerService } from 'src/question-answer/question-answer.service';
+import { ApiKeyGuard } from 'src/common/api-key.guard';
 
+@UseGuards(ApiKeyGuard)
 @Controller('question-answer')
 @ApiTags('chat')
 export class QuestionAnswerController {
