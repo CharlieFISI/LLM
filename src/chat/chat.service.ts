@@ -231,7 +231,7 @@ export class ChatService {
       const llm = new ChatOllama({ model: 'qwen2.5-coder:7b' });
       /*const llm = new ChatOpenAI({
         apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-4-turbo',
+        model: 'gpt-4o-mini',
       });*/
 
       const combineDocsChain = await createStuffDocumentsChain({
@@ -278,7 +278,13 @@ export class ChatService {
       ];
       const regex = new RegExp(`\\b(${forbiddenWords.join('|')})\\b`, 'i');
       if (regex.test(rawSql)) {
-        throw new BadRequestException('Imposible alterar datos');
+        crm_chat.interpretation = 'Lo siento, pero por razones de seguridad no puedo ejecutar consultas que modifiquen datos. \n¿En qué más puedo ayudarte?';
+        await this.crmChatRepository.save(crm_chat);
+        return {
+          answer: question,
+          result: null,
+          interpretation: crm_chat.interpretation,
+        };
       }
 
       // base de datos crm
