@@ -128,10 +128,11 @@ export class ChatService {
       const classifyPrompt = ChatPromptTemplate.fromTemplate(`
         Clasifica el siguiente mensaje como:
         - "sql" si requiere una consulta a base de datos.
-        - "otro" si es un saludo, agradecimiento o conversación general.
+        - "hello" si es un saludo o agradecimiento.
         - "bye" si es una despedida, incluso si es informal (ej: "nos vemos", "hasta luego", "cuídate").
+        - "conversation" si es una conversación general.
 
-        Responde solo con una de las palabras: "sql", "otro" o "bye". No expliques tu respuesta.
+        Responde solo con una de las palabras: "sql", "hello" o "bye". No expliques tu respuesta.
         Si el mensaje es sobre **oportunidades** clasifícalo como "sql".
 
         Mensaje: {input}
@@ -142,7 +143,7 @@ export class ChatService {
       const intent = intentRaw.content.toString().trim().toLowerCase();
       console.log('intent', intent);
 
-      if (intent === 'otro') {
+      if (intent === 'hello') {
         // Registrar igual el mensaje como entrada casual
         const crm_chat = this.crmChatRepository.create({
           user_id,
@@ -170,6 +171,31 @@ export class ChatService {
           answer: question,
           result: null,
           interpretation: crm_chat.interpretation,
+        };
+      }
+      if (intent === 'conversation') {
+        const gemmaPrompt = ChatPromptTemplate.fromTemplate(`
+          Responde brevemente y de forma amable a lo siguiente, sin extenderte más de 3 oraciones:
+        
+          {input}
+        `);
+        
+        const chatGemma = new ChatOllama({ model: 'llama3.1:8b' });
+        const promptFormatted = await gemmaPrompt.format({ input: question });
+        const gemmaResponse = await chatGemma.invoke(promptFormatted);
+
+        // Registrar igual el mensaje como entrada casual
+        const crm_chat = this.crmChatRepository.create({
+          user_id,
+          question,
+          interpretation: gemmaResponse.content.toString(),
+        });
+        await this.crmChatRepository.save(crm_chat);
+
+        return {
+          answer: question,
+          result: null,
+          interpretation: gemmaResponse.content.toString(),
         };
       }
 
@@ -296,21 +322,22 @@ export class ChatService {
 
       // Respuesta mejorada
       const resultPrompt = ChatPromptTemplate.fromTemplate(`
-          Eres un experto en CRM y bases de datos que responde en español. Un usuario ha hecho la siguiente pregunta:
-        
-          {question}
+        Eres un experto en CRM y bases de datos que responde en español. Un usuario ha hecho la siguiente pregunta:
+      
+        {question}
 
-          Se ejecutó la siguiente consulta SQL:
+        Se ejecutó la siguiente consulta SQL:
 
-          {sql}
-        
-          Y se obtuvo el siguiente resultado:
-        
-          {result}
-        
-          Responde de manera clara, concisa y con un formato amigable, enumerando los elementos de forma ordenada si es que el resultado es un array de varios objetos.
-          En tu respuesta no incluyas la consulta SQL ni des datos sobre los nombres de la tablas.
-        `);
+        {sql}
+      
+        Y se obtuvo el siguiente resultado:
+      
+        {result}
+      
+        Responde de manera clara, concisa y con un formato amigable, enumerando los elementos de forma ordenada si es que el resultado es un array de varios objetos.
+        En tu respuesta no incluyas la consulta SQL ni des datos sobre los nombres de la tablas.
+        No nombres tablas, columnas ni estructura técnica.
+      `);
 
       // Formateamos el prompt con la pregunta y resultado
       const interpretationPromptValue = await resultPrompt.format({
