@@ -1,8 +1,10 @@
-import { Controller, Post, Body, Param, Get } from '@nestjs/common';
+import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AskCrmDto } from 'src/files/dto/create-file.dto';
+import { ApiKeyGuard } from 'src/common/api-key.guard';
 
+@UseGuards(ApiKeyGuard)
 @Controller('chat')
 @ApiTags('chat')
 export class ChatController {
