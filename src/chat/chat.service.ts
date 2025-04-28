@@ -228,7 +228,7 @@ export class ChatService {
 
           // Configurar el retriever para buscar en los documentos
           const retriever = vectorStore.asRetriever();
-          const contextDocs = await retriever.getRelevantDocuments(question);
+          const contextDocs = await retriever.invoke(question);
           const contextText = `Historial reciente:\n${historySnippet}\n\n${contextDocs.map(doc => doc.pageContent).join('\n')}`;
 
           // Guarda el registro
