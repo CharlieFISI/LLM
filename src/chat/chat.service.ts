@@ -191,29 +191,63 @@ export class ChatService {
           };
 
         case 'conversation':
-          // Construir contexto conversacional (tipo chat)
-          const chatHistory = previousChats1.flatMap(chat => [
-            new HumanMessage(chat.question),
-            new AIMessage(chat.interpretation || ''),
-          ]);
+          const vectorStoree = await TypeORMVectorStore.fromExistingIndex(
+            new OllamaEmbeddings({ model: 'nomic-embed-text' }),
+            {
+              postgresConnectionOptions: AppDataSource,
+              tableName: 'its_info_store',
+            },
+          );
 
-          // Añadir la pregunta actual
-          chatHistory.push(new HumanMessage(question));        
-          const chatGemma = new ChatOllama({ model: 'llama3.1:8b' });
-          const gemmaResponse = await chatGemma.invoke(chatHistory);
+          // Configurar el retriever para buscar en los documentos
+          const retrieverr = vectorStoree.asRetriever();
+          const contextDocss = await retrieverr.invoke(question);
+          const contextTextt = `Historial reciente:\n${historySnippet}\n\n${contextDocss.map(doc => doc.pageContent).join('\n')}`;
+
+          // Crear el prompt con la estructura de la pregunta
+          const promptt = ChatPromptTemplate.fromTemplate(`
+            Eres un asistente conversacional experto. 
+            Debes responder de manera natural y directa, utilizando como base el historial de conversación y los documentos proporcionados, sin mencionarlos explícitamente. 
+            Si encuentras información relacionada en el contexto, complétala con tu conocimiento general para dar una respuesta más completa. 
+            Si el tema no aparece en el contexto indica amablemente que no puedes responder y menciona los temas de los que sí dispones información. 
+            Evita inventar datos.
+      
+            Contexto:
+            {context}
+      
+            Pregunta:
+            {input}
+          `);
+
+          // Instanciar el LLM
+          const llmm = new ChatOllama({ model: 'llama3.1:8b' });
+
+          const combineDocsChainn = await createStuffDocumentsChain({
+            llm: llmm,
+            prompt: promptt,
+          });
+
+          // Crear la cadena que conecta el retriever, el prompt y el modelo de lenguaje
+          const chainn = await createRetrievalChain({
+            combineDocsChain: combineDocsChainn,
+            retriever: retrieverr,
+          });
+
+          // Instrucción fija para la pregunta
+          const responsee = await chainn.invoke({ input: question, context: contextTextt });
 
           // Registrar igual el mensaje como entrada casual
           const crm_chat_conversation = this.crmChatRepository.create({
             user_id,
             question,
-            interpretation: gemmaResponse.content.toString(),
+            interpretation: responsee.answer,
           });
           await this.crmChatRepository.save(crm_chat_conversation);
 
           return {
             answer: question,
             result: null,
-            interpretation: gemmaResponse.content.toString(),
+            interpretation: crm_chat_conversation.interpretation,
           };
 
         case 'sql':
