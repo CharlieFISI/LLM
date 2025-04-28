@@ -1,7 +1,7 @@
 import { BadRequestException, HttpException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Message } from './entities/message.entity';
@@ -124,6 +124,18 @@ export class ChatService {
     try {
       const { question, llm_model, user_id } = data;
 
+      // Paso 1: Obtener últimos mensajes como contexto (sin cambiar flujo)
+      let previousChats1 = await this.crmChatRepository.find({
+        where: { user_id },
+        order: { created_at: 'DESC' },
+        take: 3,
+      });
+      previousChats1 = previousChats1.reverse();
+
+      const historySnippet = previousChats1
+        .map(chat => `Usuario: ${chat.question}\nAsistente: ${chat.interpretation}`)
+        .join('\n');
+
       // Paso 1: Clasificar intención del mensaje
       const classifyPrompt = ChatPromptTemplate.fromTemplate(`
         Clasifica el siguiente mensaje como:
@@ -132,8 +144,12 @@ export class ChatService {
         - "bye" si es una despedida, incluso si es informal (ej: "nos vemos", "hasta luego", "cuídate").
         - "conversation" si es una conversación general.
 
-        Responde solo con una de las palabras: "sql", "hello" o "bye". No expliques tu respuesta.
+        Responde solo con una de las palabras: "sql", "hello", "bye" o "conversation". No expliques tu respuesta.
         Si el mensaje es sobre **oportunidades** clasifícalo como "sql".
+        Considera el historial reciente si el mensaje actual es una continuación.
+
+        Historial reciente:
+        ${historySnippet}
 
         Mensaje: {input}
       `);
@@ -174,15 +190,24 @@ export class ChatService {
         };
       }
       if (intent === 'conversation') {
-        const gemmaPrompt = ChatPromptTemplate.fromTemplate(`
-          Responde brevemente y de forma amable a lo siguiente, sin extenderte más de 3 oraciones:
-        
-          {input}
-        `);
-        
+        // Obtener los últimos 5 mensajes del usuario para contexto
+        let previousChats = await this.crmChatRepository.find({
+          where: { user_id },
+          order: { created_at: 'DESC' },
+          take: 5,
+        });
+        previousChats = previousChats.reverse();
+
+        // Construir contexto conversacional (tipo chat)
+        const chatHistory = previousChats.flatMap(chat => [
+          new HumanMessage(chat.question),
+          new AIMessage(chat.interpretation || ''),
+        ]);
+
+        // Añadir la pregunta actual
+        chatHistory.push(new HumanMessage(question));        
         const chatGemma = new ChatOllama({ model: 'llama3.1:8b' });
-        const promptFormatted = await gemmaPrompt.format({ input: question });
-        const gemmaResponse = await chatGemma.invoke(promptFormatted);
+        const gemmaResponse = await chatGemma.invoke(chatHistory);
 
         // Registrar igual el mensaje como entrada casual
         const crm_chat = this.crmChatRepository.create({
@@ -198,161 +223,176 @@ export class ChatService {
           interpretation: gemmaResponse.content.toString(),
         };
       }
+      if (intent === 'sql') {
+        // Obtener últimos 5 mensajes para historial
+        let previousChats = await this.crmChatRepository.find({
+          where: { user_id },
+          order: { created_at: 'DESC' },
+          take: 5,
+        });
+        previousChats = previousChats.reverse();
 
-      // Cargar el vector store desde la base de datos
-      const vectorStore = await TypeORMVectorStore.fromExistingIndex(
-        new OllamaEmbeddings({ model: 'nomic-embed-text' }),
-        {
-          postgresConnectionOptions: AppDataSource,
-          tableName: 'document_ollama_allminilm',
-        },
-      );
+        const historySnippet1 = previousChats
+          .map(chat => `Usuario: ${chat.question}\nAsistente: ${chat.interpretation}`)
+          .join('\n');
 
-      // Configurar el retriever para buscar en los documentos
-      const retriever = vectorStore.asRetriever();
+        // Cargar el vector store desde la base de datos
+        const vectorStore = await TypeORMVectorStore.fromExistingIndex(
+          new OllamaEmbeddings({ model: 'nomic-embed-text' }),
+          {
+            postgresConnectionOptions: AppDataSource,
+            tableName: 'document_ollama_allminilm',
+          },
+        );
 
-      // Guarda el registro
-      const crm_chat = this.crmChatRepository.create({
-        user_id,
-        question,
-      });
-      await this.crmChatRepository.save(crm_chat);
+        // Configurar el retriever para buscar en los documentos
+        const retriever = vectorStore.asRetriever();
+        const contextDocs = await retriever.getRelevantDocuments(question);
+        const contextText = `Historial reciente:\n${historySnippet1}\n\n${contextDocs.map(doc => doc.pageContent).join('\n')}`;
 
-      // Crear el prompt con la estructura de la pregunta
-      const prompt = ChatPromptTemplate.fromTemplate(`
-        Eres un experto en SQL. Dada la pregunta, debes crear una consulta SQL sintácticamente correcta, utilizando solo las columnas y tablas presentes en el contexto del esquema proporcionado. 
-        Presta especial atención para **no** incluir columnas que no existan en el esquema y recuerda que no existe la tabla "opportunity" sino "oportunity".
-        Debes utilizar **exclusivamente sintaxis compatible con PostgreSQL**, evitando funciones y operadores propios de otros motores como MySQL o SQL Server.
-        Si el nombre de una tabla coincide con una palabra reservada de SQL (como 'user'), debe ir **entre comillas dobles** ("user").
-        Si se pregunta por países, la consulta debe hacerse con el nombre del país en español, ejemplo: México.
-        Si se pregunta sobre algún nombre, por defecto búscalo sin distinguir mayúsculas o minúsculas a menos que se especifique.
-        Si se pregunta sobre productos ten en cuenta su tabla "product".
-        Si se pregunta sobre cursos, considera que todos los productos corresponden a cursos y realiza la consulta directamente en la tabla "product" sin ningún filtro adicional salvo que se especifique explícitamente en la pregunta. Nunca utilices cláusulas WHERE relacionadas con cursos salvo que se indique claramente en la pregunta.
-        Si se pregunta sobre dónde proviene un precontacto se refiere al campo "note" de la tabla "pre_contact" y busca sin distinguir mayúsculas.
-        Si se pregunta por los productos de una oportunidad consulta la tabla 'oportunity_has_product'.
-        Si se pregunta por los asesores significa buscar usuario con el rol de Asesor.
-        Se se pregunta por el nombre de un usuario, lead o precontacto busca el campo 'fullname' de sus tablas correspondientes.
-        Las consultas FROM user cámbialas a FROM "user".
-        La tabla "user" no representa leads. Los leads están en la tabla "lead", y deben consultarse exclusivamente desde esa tabla. Nunca asumas que "user" contiene leads.
-        Las oportunidades nuevas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Nuevo'.
-        Las oportunidades perdidas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Perdido'.
-        Las oportunidades ganadas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Ganado'.
-        Las oportunidades en seguimiento significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Seguimiento'.
-        Las oportunidades por pagar significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Pagará'.
-        Un usuario no es un lead ni un precontacto.
-        La tabla "opportunity" no existe. Cualquier consulta debe hacerse usando exclusivamente la tabla "oportunity" (con una sola "p"). Bajo ninguna circunstancia debe escribirse "opportunity".
-        La tabla "opportunity_has_product" no existe. Cualquier consulta debe hacerse usando exclusivamente la tabla "oportunity_has_product" (con una sola "p"). Bajo ninguna circunstancia debe escribirse "opportunity_has_product".
-        La tabla correcta es "user" no "users".
-        Si quieres consultar los roles de un usuario busca en la tabla 'user_has_role'.
-        Debes responder utilizando **solo** código SQL, sin envolverla en algún bloque de código, sin saltos de línea, sin caracteres especiales, sin explicaciones, sin comentarios, y sin texto adicional.
-  
-        Contexto:
-        {context}
-  
-        Pregunta:
-        {input}
-      `);
-
-      // Instanciar el LLM
-      const llm = new ChatOllama({ model: 'qwen2.5-coder:7b' });
-      /*const llm = new ChatOpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-4o-mini',
-      });*/
-
-      const combineDocsChain = await createStuffDocumentsChain({
-        llm,
-        prompt,
-      });
-
-      // Crear la cadena que conecta el retriever, el prompt y el modelo de lenguaje
-      const chain = await createRetrievalChain({
-        combineDocsChain,
-        retriever,
-      });
-
-      // Instrucción fija para la pregunta
-      const response = await chain.invoke({ input: question });
-
-      // Obtener el contenido en texto plano
-      let rawSql = String(
-        response.answer ?? 'No se encontró respuesta',
-      );
-      console.log('rawSql', rawSql);
-      // Si contiene ```sql al inicio y ``` al final
-      if (rawSql.includes('```sql')) {
-        rawSql = rawSql.replace('```sql', '').replace('```', '');
-      }
-      crm_chat.sql = rawSql;
-      await this.crmChatRepository.save(crm_chat);
-
-      // Validar si contiene comandos prohibidos
-      const forbiddenWords = [
-        'insert',
-        'update',
-        'delete',
-        'drop',
-        'alter',
-        'truncate',
-        'create',
-        'rename',
-        'comment',
-        'grant',
-        'revoke',
-        'merge',
-        'replace',
-      ];
-      const regex = new RegExp(`\\b(${forbiddenWords.join('|')})\\b`, 'i');
-      if (regex.test(rawSql)) {
-        crm_chat.interpretation = 'Lo siento, pero por razones de seguridad no puedo ejecutar consultas que modifiquen datos. \n¿En qué más puedo ayudarte?';
+        // Guarda el registro
+        const crm_chat = this.crmChatRepository.create({
+          user_id,
+          question,
+        });
         await this.crmChatRepository.save(crm_chat);
-        return {
-          answer: question,
-          result: null,
-          interpretation: crm_chat.interpretation,
-        };
+
+        // Crear el prompt con la estructura de la pregunta
+        const prompt = ChatPromptTemplate.fromTemplate(`
+          Eres un experto en SQL. Dada la pregunta, debes crear una consulta SQL sintácticamente correcta, utilizando solo las columnas y tablas presentes en el contexto del esquema proporcionado. 
+          Presta especial atención para **no** incluir columnas que no existan en el esquema y recuerda que no existe la tabla "opportunity" sino "oportunity".
+          Debes utilizar **exclusivamente sintaxis compatible con PostgreSQL**, evitando funciones y operadores propios de otros motores como MySQL o SQL Server.
+          Si el nombre de una tabla coincide con una palabra reservada de SQL (como 'user'), debe ir **entre comillas dobles** ("user").
+          Si se pregunta por países, la consulta debe hacerse con el nombre del país en español, ejemplo: México.
+          Si se pregunta sobre algún nombre, por defecto búscalo sin distinguir mayúsculas o minúsculas a menos que se especifique.
+          Si se pregunta sobre productos ten en cuenta su tabla "product".
+          Si se pregunta sobre cursos, considera que todos los productos corresponden a cursos y realiza la consulta directamente en la tabla "product" sin ningún filtro adicional salvo que se especifique explícitamente en la pregunta. Nunca utilices cláusulas WHERE relacionadas con cursos salvo que se indique claramente en la pregunta.
+          Si se pregunta sobre dónde proviene un precontacto se refiere al campo "note" de la tabla "pre_contact" y busca sin distinguir mayúsculas.
+          Si se pregunta por los productos de una oportunidad consulta la tabla 'oportunity_has_product'.
+          Si se pregunta por los asesores significa buscar usuario con el rol de Asesor.
+          Se se pregunta por el nombre de un usuario, lead o precontacto busca el campo 'fullname' de sus tablas correspondientes.
+          Las consultas FROM user cámbialas a FROM "user".
+          La tabla "user" no representa leads. Los leads están en la tabla "lead", y deben consultarse exclusivamente desde esa tabla. Nunca asumas que "user" contiene leads.
+          Las oportunidades nuevas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Nuevo'.
+          Las oportunidades perdidas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Perdido'.
+          Las oportunidades ganadas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Ganado'.
+          Las oportunidades en seguimiento significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Seguimiento'.
+          Las oportunidades por pagar significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Pagará'.
+          Un usuario no es un lead ni un precontacto.
+          La tabla "opportunity" no existe. Cualquier consulta debe hacerse usando exclusivamente la tabla "oportunity" (con una sola "p"). Bajo ninguna circunstancia debe escribirse "opportunity".
+          La tabla "opportunity_has_product" no existe. Cualquier consulta debe hacerse usando exclusivamente la tabla "oportunity_has_product" (con una sola "p"). Bajo ninguna circunstancia debe escribirse "opportunity_has_product".
+          La tabla correcta es "user" no "users".
+          Si quieres consultar los roles de un usuario busca en la tabla 'user_has_role'.
+          Debes responder utilizando **solo** código SQL, sin envolverla en algún bloque de código, sin saltos de línea, sin caracteres especiales, sin explicaciones, sin comentarios, y sin texto adicional.
+    
+          Contexto:
+          {context}
+    
+          Pregunta:
+          {input}
+        `);
+
+        // Instanciar el LLM
+        const llm = new ChatOllama({ model: 'qwen2.5-coder:7b' });
+        /*const llm = new ChatOpenAI({
+          apiKey: process.env.OPENAI_API_KEY,
+          model: 'gpt-4o-mini',
+        });*/
+
+        const combineDocsChain = await createStuffDocumentsChain({
+          llm,
+          prompt,
+        });
+
+        // Crear la cadena que conecta el retriever, el prompt y el modelo de lenguaje
+        const chain = await createRetrievalChain({
+          combineDocsChain,
+          retriever,
+        });
+
+        // Instrucción fija para la pregunta
+        const response = await chain.invoke({ input: question, context: contextText });
+
+        // Obtener el contenido en texto plano
+        let rawSql = String(
+          response.answer ?? 'No se encontró respuesta',
+        );
+        console.log('rawSql', rawSql);
+        // Si contiene ```sql al inicio y ``` al final
+        if (rawSql.includes('```sql')) {
+          rawSql = rawSql.replace('```sql', '').replace('```', '');
+        }
+        crm_chat.sql = rawSql;
+        await this.crmChatRepository.save(crm_chat);
+
+        // Validar si contiene comandos prohibidos
+        const forbiddenWords = [
+          'insert',
+          'update',
+          'delete',
+          'drop',
+          'alter',
+          'truncate',
+          'create',
+          'rename',
+          'comment',
+          'grant',
+          'revoke',
+          'merge',
+          'replace',
+        ];
+        const regex = new RegExp(`\\b(${forbiddenWords.join('|')})\\b`, 'i');
+        if (regex.test(rawSql)) {
+          crm_chat.interpretation = 'Lo siento, pero por razones de seguridad no puedo ejecutar consultas que modifiquen datos. \n¿En qué más puedo ayudarte?';
+          await this.crmChatRepository.save(crm_chat);
+          return {
+            answer: question,
+            result: null,
+            interpretation: crm_chat.interpretation,
+          };
+        }
+
+        // base de datos crm
+        const dataSource = new DataSource(CRMDataSource);
+        if (!dataSource.isInitialized) await dataSource.initialize();
+        const queryResult = await dataSource.query(rawSql);
+        crm_chat.answer = queryResult;
+        await this.crmChatRepository.save(crm_chat);
+
+        // Respuesta mejorada
+        const resultPrompt = ChatPromptTemplate.fromTemplate(`
+          Eres un experto en CRM y bases de datos que responde en español. Un usuario ha hecho la siguiente pregunta:
+        
+          {question}
+
+          Se ejecutó la siguiente consulta SQL:
+
+          {sql}
+        
+          Y se obtuvo el siguiente resultado:
+        
+          {result}
+        
+          Responde de manera clara, concisa y con un formato amigable, enumerando los elementos de forma ordenada si es que el resultado es un array de varios objetos.
+          En tu respuesta no incluyas la consulta SQL ni des datos sobre los nombres de la tablas.
+          No nombres tablas, columnas ni estructura técnica.
+        `);
+
+        // Formateamos el prompt con la pregunta y resultado
+        const interpretationPromptValue = await resultPrompt.format({
+          question,
+          sql: rawSql,
+          result: JSON.stringify(queryResult),
+        });
+
+        // Pasamos eso al LLM
+        const interpretationResponse = await llm.invoke(interpretationPromptValue);
+        crm_chat.interpretation = interpretationResponse.content.toString();
+        await this.crmChatRepository.save(crm_chat);
+
+        // Retornar la respuesta final
+        return { answer: rawSql, result: queryResult ?? 'sin respuesta', interpretation: interpretationResponse.content };
       }
-
-      // base de datos crm
-      const dataSource = new DataSource(CRMDataSource);
-      if (!dataSource.isInitialized) await dataSource.initialize();
-      const queryResult = await dataSource.query(rawSql);
-      crm_chat.answer = queryResult;
-      await this.crmChatRepository.save(crm_chat);
-
-      // Respuesta mejorada
-      const resultPrompt = ChatPromptTemplate.fromTemplate(`
-        Eres un experto en CRM y bases de datos que responde en español. Un usuario ha hecho la siguiente pregunta:
-      
-        {question}
-
-        Se ejecutó la siguiente consulta SQL:
-
-        {sql}
-      
-        Y se obtuvo el siguiente resultado:
-      
-        {result}
-      
-        Responde de manera clara, concisa y con un formato amigable, enumerando los elementos de forma ordenada si es que el resultado es un array de varios objetos.
-        En tu respuesta no incluyas la consulta SQL ni des datos sobre los nombres de la tablas.
-        No nombres tablas, columnas ni estructura técnica.
-      `);
-
-      // Formateamos el prompt con la pregunta y resultado
-      const interpretationPromptValue = await resultPrompt.format({
-        question,
-        sql: rawSql,
-        result: JSON.stringify(queryResult),
-      });
-
-      // Pasamos eso al LLM
-      const interpretationResponse = await llm.invoke(interpretationPromptValue);
-      crm_chat.interpretation = interpretationResponse.content.toString();
-      await this.crmChatRepository.save(crm_chat);
-
-      // Retornar la respuesta final
-      return { answer: rawSql, result: queryResult ?? 'sin respuesta', interpretation: interpretationResponse.content };
     } catch (error) {
       if (error instanceof HttpException) {
         console.error('Error al preguntar sobre el CRM:', error.message);
