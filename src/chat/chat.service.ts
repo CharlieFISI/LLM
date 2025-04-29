@@ -308,7 +308,7 @@ export class ChatService {
           `);
 
           // Instanciar el LLM
-          const llm = new ChatOllama({ model: 'qwen2.5-coder:7b' });
+          const llm = new ChatOllama({ model: 'qwen3:8b' });
           /*const llm = new ChatOpenAI({
             apiKey: process.env.OPENAI_API_KEY,
             model: 'gpt-4o-mini',
@@ -333,10 +333,20 @@ export class ChatService {
             response.answer ?? 'No se encontró respuesta',
           );
           console.log('rawSql', rawSql);
+
           // Si contiene ```sql al inicio y ``` al final
           if (rawSql.includes('```sql')) {
             rawSql = rawSql.replace('```sql', '').replace('```', '');
           }
+          
+          // Si la respuesta contiene una etiqueta </think>, tomar solo lo que viene después
+          if (rawSql.includes('</think>')) {
+            const endThinkTag = '</think>';
+            const endThinkIndex = rawSql.indexOf(endThinkTag);
+            rawSql = rawSql.slice(endThinkIndex + endThinkTag.length).trim();
+          }
+          console.log('rawSql2', rawSql);
+
           crm_chat_sql.sql = rawSql;
           await this.crmChatRepository.save(crm_chat_sql);
 
@@ -401,7 +411,7 @@ export class ChatService {
           });
 
           // Pasamos eso al LLM
-          const interpretationResponse = await llm.invoke(interpretationPromptValue);
+          const interpretationResponse = await llmClassifier.invoke(interpretationPromptValue);
           crm_chat_sql.interpretation = interpretationResponse.content.toString();
           await this.crmChatRepository.save(crm_chat_sql);
 
