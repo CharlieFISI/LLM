@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { join, extname } from 'path';
+import { join, extname, basename } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import { TextLoader } from 'langchain/document_loaders/fs/text';
@@ -58,7 +58,7 @@ export class FilesService {
 
       await TypeORMVectorStore.fromDocuments(splitDocs, embeddings, {
         postgresConnectionOptions: AppDataSource,
-        tableName: 'document_ollama_allminilm',
+        tableName: basename(file.originalname, ext) + '_store',
       });
 
       return {
