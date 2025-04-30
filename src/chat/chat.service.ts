@@ -139,7 +139,7 @@ export class ChatService {
       // Paso 1: Clasificar intención del mensaje
       const classifyPrompt = ChatPromptTemplate.fromTemplate(`
         Clasifica el siguiente mensaje como:
-        - "sql" si requiere una consulta a base de datos.
+        - "sql" si requiere una consulta a base de datos incluyendo preguntas sobre leads, precontactos, asesores, ganados.
         - "hello" si es un saludo o agradecimiento.
         - "bye" si es una despedida, incluso si es informal (ej: "nos vemos", "hasta luego", "cuídate").
         - "conversation" si es una conversación general.
@@ -256,7 +256,7 @@ export class ChatService {
             new OllamaEmbeddings({ model: 'nomic-embed-text' }),
             {
               postgresConnectionOptions: AppDataSource,
-              tableName: 'document_ollama_allminilm',
+              tableName: 'document_ollama_allminilm_store',
             },
           );
 
@@ -279,18 +279,18 @@ export class ChatService {
             Debes utilizar **exclusivamente sintaxis compatible con PostgreSQL**, evitando funciones y operadores propios de otros motores como MySQL o SQL Server.
             Si el nombre de una tabla coincide con una palabra reservada de SQL (como 'user'), debe ir **entre comillas dobles** ("user").
             Si se pregunta por países, la consulta debe hacerse con el nombre del país en español, ejemplo: México.
-            Si se pregunta sobre algún nombre, por defecto búscalo sin distinguir mayúsculas o minúsculas a menos que se especifique.
+            Si se pregunta sobre algún nombre, por defecto búscalo sin distinguir mayúsculas o minúsculas y que permita coincidencias parciales (por ejemplo: ILIKE '%alexis%') a menos que se especifique lo contrario.
             Si se pregunta sobre productos ten en cuenta su tabla "product".
             Si se pregunta sobre cursos, considera que todos los productos corresponden a cursos y realiza la consulta directamente en la tabla "product" sin ningún filtro adicional salvo que se especifique explícitamente en la pregunta. Nunca utilices cláusulas WHERE relacionadas con cursos salvo que se indique claramente en la pregunta.
             Si se pregunta sobre dónde proviene un precontacto se refiere al campo "note" de la tabla "pre_contact" y busca sin distinguir mayúsculas.
             Si se pregunta por los productos de una oportunidad consulta la tabla 'oportunity_has_product'.
             Si se pregunta por los asesores significa buscar usuario con el rol de Asesor.
-            Se se pregunta por el nombre de un usuario, lead o precontacto busca el campo 'fullname' de sus tablas correspondientes.
+            Si se pregunta por el nombre de un usuario, lead o precontacto busca el campo 'fullname' de sus tablas correspondientes.
             Las consultas FROM user cámbialas a FROM "user".
             La tabla "user" no representa leads. Los leads están en la tabla "lead", y deben consultarse exclusivamente desde esa tabla. Nunca asumas que "user" contiene leads.
             Las oportunidades nuevas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Nuevo'.
             Las oportunidades perdidas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Perdido'.
-            Las oportunidades ganadas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Ganado'.
+            Las oportunidades ganadas o ventas significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Ganado'.
             Las oportunidades en seguimiento significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Seguimiento'.
             Las oportunidades por pagar significan filtrar oportunidades cuyo 'stage_id' corresponda al id de 'stage' donde 'name' = 'Pagará'.
             Un usuario no es un lead ni un precontacto.
@@ -308,11 +308,11 @@ export class ChatService {
           `);
 
           // Instanciar el LLM
-          const llm = new ChatOllama({ model: 'qwen3:8b' });
-          /*const llm = new ChatOpenAI({
+          //const llm = new ChatOllama({ model: 'qwen3:8b' });
+          const llm = new ChatOpenAI({
             apiKey: process.env.OPENAI_API_KEY,
             model: 'gpt-4o-mini',
-          });*/
+          });
 
           const combineDocsChain = await createStuffDocumentsChain({
             llm,
@@ -343,7 +343,26 @@ export class ChatService {
           if (rawSql.includes('</think>')) {
             const endThinkTag = '</think>';
             const endThinkIndex = rawSql.indexOf(endThinkTag);
-            rawSql = rawSql.slice(endThinkIndex + endThinkTag.length).trim();
+            //rawSql = rawSql.slice(endThinkIndex + endThinkTag.length).trim();
+
+            // Texto después de </think>
+            const afterThink = rawSql.slice(endThinkIndex + endThinkTag.length);
+
+            // Buscar "select" desde allí
+            const selectIndex = afterThink.toLowerCase().indexOf('select');
+            if (selectIndex !== -1) {
+              const afterSelect = afterThink.slice(selectIndex);
+
+              // Buscar el punto y coma que cierra la consulta
+              const semicolonIndex = afterSelect.indexOf(';');
+              if (semicolonIndex !== -1) {
+                rawSql = afterSelect.slice(0, semicolonIndex + 1).trim();
+              } else {
+                rawSql = afterSelect.trim(); // Por si no hay punto y coma
+              }
+            } else {
+              rawSql = ''; // No se encontró "select"
+            }
           }
           console.log('rawSql2', rawSql);
 
@@ -398,9 +417,10 @@ export class ChatService {
           
             {result}
           
-            Responde de manera clara, concisa y con un formato amigable, enumerando los elementos de forma ordenada si es que el resultado es un array de varios objetos.
-            En tu respuesta no incluyas la consulta SQL ni des datos sobre los nombres de la tablas.
-            No nombres tablas, columnas ni estructura técnica.
+            Responde de manera clara, concisa, sin repetir la pregunta ni mencionar al usuario, enumerando los elementos de forma ordenada si es que el resultado es un array de varios objetos.
+            No incluyas saludos, introducciones ni encabezados como "Respuesta".
+            No incluyas la consulta SQL ni menciones nombres de tablas, columnas ni estructura técnica.
+            Si se incluyen fechas en el resultado, muéstralas en el formato día/mes/año (por ejemplo, 23/08/2024).
           `);
 
           // Formateamos el prompt con la pregunta y resultado
@@ -434,6 +454,7 @@ export class ChatService {
           };
       }
     } catch (error) {
+      console.error('Error al preguntar sobre el CRM:', error.message);
       return {
         answer: 'question',
         result: null,
