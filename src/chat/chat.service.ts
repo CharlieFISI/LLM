@@ -139,7 +139,7 @@ export class ChatService {
       // Paso 1: Clasificar intención del mensaje
       const classifyPrompt = ChatPromptTemplate.fromTemplate(`
         Clasifica el siguiente mensaje como:
-        - "sql" si requiere una consulta a base de datos incluyendo preguntas sobre leads, precontactos, asesores, ganados.
+        - "sql" si requiere una consulta a base de datos incluyendo preguntas sobre leads, precontactos, asesores, ganados, ventas.
         - "hello" si es un saludo o agradecimiento.
         - "bye" si es una despedida, incluso si es informal (ej: "nos vemos", "hasta luego", "cuídate").
         - "conversation" si es una conversación general.
@@ -202,7 +202,7 @@ export class ChatService {
           // Configurar el retriever para buscar en los documentos
           const retrieverr = vectorStoree.asRetriever();
           const contextDocss = await retrieverr.invoke(question);
-          const contextTextt = `Historial reciente:\n${historySnippet}\n\n${contextDocss.map(doc => doc.pageContent).join('\n')}`;
+          const contextTextt = contextDocss.map(doc => doc.pageContent).join('\n');
 
           // Crear el prompt con la estructura de la pregunta
           const promptt = ChatPromptTemplate.fromTemplate(`
@@ -211,6 +211,9 @@ export class ChatService {
             Si encuentras información relacionada en el contexto, complétala con tu conocimiento general para dar una respuesta más completa. 
             Si el tema no aparece en el contexto indica amablemente que no puedes responder y menciona los temas de los que sí dispones información. 
             Evita inventar datos.
+
+            Historial reciente:
+            {history}
       
             Contexto:
             {context}
@@ -234,7 +237,11 @@ export class ChatService {
           });
 
           // Instrucción fija para la pregunta
-          const responsee = await chainn.invoke({ input: question, context: contextTextt });
+          const responsee = await chainn.invoke({
+            input: question,
+            history: historySnippet,
+            context: contextTextt
+          });
 
           // Registrar igual el mensaje como entrada casual
           const crm_chat_conversation = this.crmChatRepository.create({
@@ -263,7 +270,6 @@ export class ChatService {
           // Configurar el retriever para buscar en los documentos
           const retriever = vectorStore.asRetriever();
           const contextDocs = await retriever.invoke(question);
-          const contextText = `Historial reciente:\n${historySnippet}\n\n${contextDocs.map(doc => doc.pageContent).join('\n')}`;
 
           // Guarda el registro
           const crm_chat_sql = this.crmChatRepository.create({
@@ -277,6 +283,7 @@ export class ChatService {
             Eres un experto en SQL. Dada la pregunta, debes crear una consulta SQL sintácticamente correcta, utilizando solo las columnas y tablas presentes en el contexto del esquema proporcionado. 
             Presta especial atención para **no** incluir columnas que no existan en el esquema y recuerda que no existe la tabla "opportunity" sino "oportunity".
             Debes utilizar **exclusivamente sintaxis compatible con PostgreSQL**, evitando funciones y operadores propios de otros motores como MySQL o SQL Server.
+            Si la pregunta es ambigua (por ejemplo: "y el asesor Ysabel?"), utiliza el historial reciente para inferir el contexto completo.
             Si el nombre de una tabla coincide con una palabra reservada de SQL (como 'user'), debe ir **entre comillas dobles** ("user").
             Si se pregunta por países, la consulta debe hacerse con el nombre del país en español, ejemplo: México.
             Si se pregunta sobre algún nombre, por defecto búscalo sin distinguir mayúsculas o minúsculas y que permita coincidencias parciales (por ejemplo: ILIKE '%alexis%') a menos que se especifique lo contrario.
@@ -298,7 +305,13 @@ export class ChatService {
             La tabla "opportunity_has_product" no existe. Cualquier consulta debe hacerse usando exclusivamente la tabla "oportunity_has_product" (con una sola "p"). Bajo ninguna circunstancia debe escribirse "opportunity_has_product".
             La tabla correcta es "user" no "users".
             Si quieres consultar los roles de un usuario busca en la tabla 'user_has_role'.
+            No existe columna llamada owner_id.
+            No existe columna llamada 'date' en la tabla 'oportunity'.
+            Si se pregunta por la fecha actual utiliza funciones del sistema como NOW() o CURRENT_DATE. Bajo ningún concepto uses fechas fijas, predefinidas o inferidas a partir de información interna de tu modelo.
             Debes responder utilizando **solo** código SQL, sin envolverla en algún bloque de código, sin saltos de línea, sin caracteres especiales, sin explicaciones, sin comentarios, y sin texto adicional.
+
+            Historial reciente:
+            {history}
       
             Contexto:
             {context}
@@ -326,7 +339,11 @@ export class ChatService {
           });
 
           // Instrucción fija para la pregunta
-          const response = await chain.invoke({ input: question, context: contextText });
+          const response = await chain.invoke({
+            input: question,
+            history: historySnippet,
+            context: contextDocs.map(doc => doc.pageContent).join('\n'),
+          });
 
           // Obtener el contenido en texto plano
           let rawSql = String(
@@ -421,6 +438,7 @@ export class ChatService {
             No incluyas saludos, introducciones ni encabezados como "Respuesta".
             No incluyas la consulta SQL ni menciones nombres de tablas, columnas ni estructura técnica.
             Si se incluyen fechas en el resultado, muéstralas en el formato día/mes/año (por ejemplo, 23/08/2024).
+            Si el resultado devuelve alguna contraseña, no la muestres.
           `);
 
           // Formateamos el prompt con la pregunta y resultado
